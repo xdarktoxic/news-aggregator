@@ -2,19 +2,25 @@
 
 // app/components/NewsFeed.tsx
 //
-// Handles source filtering and article display.
+// Handles source filtering, article display, and auto-refresh.
+//
+// Auto-refresh:
+//   - Every 15 minutes, fetches /api/articles in the background
+//   - Updates the article list without any page reload
+//   - Shows "Last updated: X minutes ago" that ticks every minute
 //
 // Filter behaviour:
-//   - Default ("All"): shows all sources with a balanced top 10 (max 2 per source)
+//   - Default ("All"): balanced top 10, max 4 per source, no consecutive same source
 //   - Click a source tab: shows ONLY that source
-//   - Click the active tab again, or click "All": resets
+//   - Click active tab again, or "All": resets
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { relativeTime, type Article } from '@/lib/feeds';
 
-const ALL_SOURCES = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India'];
+const ALL_SOURCES    = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India'];
+const REFRESH_MS     = 15 * 60 * 1000; // 15 minutes
+const CLOCK_TICK_MS  = 60 * 1000;      // re-render "X minutes ago" every minute
 
-// A distinct accent color for each source — used on the source label and active tab indicator
 const SOURCE_COLORS: Record<string, string> = {
   'Moneycontrol': '#0a7c42',
   'The Hindu':    '#b91c1c',
@@ -24,14 +30,22 @@ const SOURCE_COLORS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// getBalancedArticles
+// normalizeArticles
 //
-// Builds the first 10 slots one at a time using a greedy pick:
-//   - Never place the same source back-to-back (no clustering)
-//   - No source gets more than 4 of the 10 slots
-//   - If unseen sources won't fit in the slots remaining, force one in
-//     so all 5 sources are guaranteed to appear
-// After the top 10, remaining articles follow in pure date order.
+// When articles arrive from the API they have publishedAt as a string.
+// When they come from the server component prop they may already be Dates.
+// This ensures we always work with real Date objects.
+// ---------------------------------------------------------------------------
+
+function normalizeArticles(raw: (Article | (Omit<Article, 'publishedAt'> & { publishedAt: string | Date }))[]) : Article[] {
+  return raw.map((a) => ({
+    ...a,
+    publishedAt: a.publishedAt instanceof Date ? a.publishedAt : new Date(a.publishedAt),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// getBalancedArticles — greedy interleave, max 4 per source, no consecutive
 // ---------------------------------------------------------------------------
 
 function getBalancedArticles(articles: Article[]): Article[] {
@@ -39,38 +53,25 @@ function getBalancedArticles(articles: Article[]): Article[] {
   const TOTAL = 10;
   const sourceCounts: Record<string, number> = {};
   const top10: Article[] = [];
-  const pool = [...articles]; // already sorted newest-first
+  const pool = [...articles];
 
   while (top10.length < TOTAL && pool.length > 0) {
-    const lastSource  = top10.length > 0 ? top10[top10.length - 1].source : null;
-    const slotsLeft   = TOTAL - top10.length;
+    const lastSource    = top10.length > 0 ? top10[top10.length - 1].source : null;
+    const slotsLeft     = TOTAL - top10.length;
     const unseenSources = ALL_SOURCES.filter((s) => !sourceCounts[s]);
-
-    // If there are as many unseen sources as slots left, we must pick one now
-    // to guarantee every source appears at least once
     const mustPickUnseen = unseenSources.length >= slotsLeft;
 
     let idx: number;
 
     if (mustPickUnseen && unseenSources.length > 0) {
-      // Prefer an unseen source that also isn't the same as the last one
-      idx = pool.findIndex(
-        (a) => unseenSources.includes(a.source) && a.source !== lastSource
-      );
+      idx = pool.findIndex((a) => unseenSources.includes(a.source) && a.source !== lastSource);
       if (idx === -1) idx = pool.findIndex((a) => unseenSources.includes(a.source));
     } else {
-      // Normal pick: avoid same source as last, respect the per-source cap
-      idx = pool.findIndex(
-        (a) => a.source !== lastSource && (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE
-      );
-      // Fallback: relax the no-consecutive rule, just respect the cap
-      if (idx === -1) {
-        idx = pool.findIndex((a) => (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE);
-      }
+      idx = pool.findIndex((a) => a.source !== lastSource && (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE);
+      if (idx === -1) idx = pool.findIndex((a) => (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE);
     }
 
     if (idx === -1) break;
-
     const [article] = pool.splice(idx, 1);
     top10.push(article);
     sourceCounts[article.source] = (sourceCounts[article.source] ?? 0) + 1;
@@ -85,22 +86,54 @@ function getBalancedArticles(articles: Article[]): Article[] {
 // NewsFeed
 // ---------------------------------------------------------------------------
 
-export default function NewsFeed({ articles }: { articles: Article[] }) {
+export default function NewsFeed({ articles: initialArticles }: { articles: Article[] }) {
+  const [articles,    setArticles]    = useState<Article[]>(() => normalizeArticles(initialArticles));
+  const [lastUpdated, setLastUpdated] = useState<Date>(() => new Date());
+  const [, clockTick]                 = useState(0); // triggers re-render for relative time
   const [activeSource, setActiveSource] = useState<string | null>(null);
+
+  // Fetch fresh articles from the API and update state
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch('/api/articles');
+      if (!res.ok) return;
+      const data = await res.json();
+      setArticles(normalizeArticles(data));
+      setLastUpdated(new Date());
+    } catch {
+      // Silently keep the existing articles if the fetch fails
+    }
+  }, []);
+
+  useEffect(() => {
+    // Auto-refresh every 15 minutes
+    const refreshInterval = setInterval(refresh, REFRESH_MS);
+
+    // Tick the clock every minute so "X minutes ago" stays accurate
+    const clockInterval = setInterval(() => clockTick((n) => n + 1), CLOCK_TICK_MS);
+
+    return () => {
+      clearInterval(refreshInterval);
+      clearInterval(clockInterval);
+    };
+  }, [refresh]);
 
   function selectSource(source: string) {
     setActiveSource((prev) => (prev === source ? null : source));
   }
 
   const visible = useMemo(() => {
-    if (activeSource !== null) {
-      return articles.filter((a) => a.source === activeSource);
-    }
+    if (activeSource !== null) return articles.filter((a) => a.source === activeSource);
     return getBalancedArticles(articles);
   }, [articles, activeSource]);
 
   return (
     <>
+      {/* Last updated indicator */}
+      <p className="text-xs text-gray-400 mb-4">
+        Last updated: {relativeTime(lastUpdated)}
+      </p>
+
       {/* Source filter tabs */}
       <div className="flex flex-wrap gap-x-6 gap-y-2 mb-6 border-b border-gray-200 pb-3">
 
@@ -118,7 +151,7 @@ export default function NewsFeed({ articles }: { articles: Article[] }) {
 
         {ALL_SOURCES.map((source) => {
           const isActive = activeSource === source;
-          const color = SOURCE_COLORS[source];
+          const color    = SOURCE_COLORS[source];
           return (
             <button
               key={source}
@@ -152,7 +185,7 @@ export default function NewsFeed({ articles }: { articles: Article[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// ArticleRow — editorial list style, no card box
+// ArticleRow
 // ---------------------------------------------------------------------------
 
 function ArticleRow({ article }: { article: Article }) {
@@ -161,18 +194,13 @@ function ArticleRow({ article }: { article: Article }) {
   return (
     <li className="py-4 border-b border-gray-100 last:border-0">
 
-      {/* Source + timestamp on one line */}
       <div className="flex items-center gap-2 mb-1">
-        <span
-          className="text-xs font-bold uppercase tracking-wide"
-          style={{ color }}
-        >
+        <span className="text-xs font-bold uppercase tracking-wide" style={{ color }}>
           {article.source}
         </span>
         <span className="text-xs text-gray-400">{relativeTime(article.publishedAt)}</span>
       </div>
 
-      {/* Headline */}
       <a
         href={article.url}
         target="_blank"
@@ -182,7 +210,6 @@ function ArticleRow({ article }: { article: Article }) {
         {article.title}
       </a>
 
-      {/* Snippet */}
       {article.snippet && (
         <p className="text-sm text-gray-500 mt-1 leading-relaxed">
           {article.snippet}
