@@ -26,7 +26,7 @@ const FEEDS = [
   { name: 'Yahoo India',    url: 'https://news.yahoo.com/rss/india' },
   { name: 'India Today',    url: 'https://www.indiatoday.in/rss/home' },
   { name: 'Times of India', url: 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms' },
-  { name: 'Firstpost',      url: 'https://www.firstpost.com/commonfeeds/v1/mfp/rss/india.xml' },
+  { name: 'Hindustan Times', url: 'https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml' },
 ];
 
 // ---------------------------------------------------------------------------

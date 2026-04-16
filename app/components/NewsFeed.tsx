@@ -17,7 +17,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { relativeTime, type Article } from '@/lib/feeds';
 
-const ALL_SOURCES    = ['Economic Times', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India', 'India Today', 'Times of India', 'Firstpost'];
+const ALL_SOURCES    = ['Economic Times', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India', 'India Today', 'Times of India', 'Hindustan Times'];
 const REFRESH_MS     = 15 * 60 * 1000; // 15 minutes
 const CLOCK_TICK_MS  = 60 * 1000;      // re-render "X minutes ago" every minute
 
@@ -29,7 +29,7 @@ const SOURCE_COLORS: Record<string, string> = {
   'Yahoo India':    '#7e22ce', // purple
   'India Today':    '#0369a1', // sky blue
   'Times of India': '#dc2626', // bright red
-  'Firstpost':      '#047857', // green
+  'Hindustan Times': '#0f766e', // teal
 };
 
 // ---------------------------------------------------------------------------
