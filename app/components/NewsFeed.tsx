@@ -21,6 +21,18 @@ const ALL_SOURCES    = ['Economic Times', 'The Hindu', 'Livemint', 'NDTV', 'Yaho
 const REFRESH_MS     = 15 * 60 * 1000; // 15 minutes
 const CLOCK_TICK_MS  = 60 * 1000;      // re-render "X minutes ago" every minute
 
+// Shorter labels for the tab row — internal source names stay unchanged
+const SOURCE_LABELS: Record<string, string> = {
+  'Economic Times': 'ET',
+  'Times of India': 'TOI',
+  'Hindustan Times': 'HT',
+  'Yahoo India': 'Yahoo India',
+  'India Today': 'India Today',
+  'The Hindu': 'The Hindu',
+  'Livemint': 'Livemint',
+  'NDTV': 'NDTV',
+};
+
 const SOURCE_COLORS: Record<string, string> = {
   'Economic Times': '#b45309', // amber
   'The Hindu':      '#b91c1c', // red
@@ -137,12 +149,12 @@ export default function NewsFeed({ articles: initialArticles }: { articles: Arti
         Last updated: {relativeTime(lastUpdated)}
       </p>
 
-      {/* Source filter tabs */}
-      <div className="flex flex-wrap gap-x-6 gap-y-2 mb-6 border-b border-gray-200 pb-3">
+      {/* Source filter tabs — single scrollable row */}
+      <div className="flex gap-x-6 mb-6 border-b border-gray-200 pb-3 overflow-x-auto scrollbar-none">
 
         <button
           onClick={() => setActiveSource(null)}
-          className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer"
+          className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer whitespace-nowrap shrink-0"
           style={
             activeSource === null
               ? { color: '#111827', borderColor: '#111827' }
@@ -159,13 +171,13 @@ export default function NewsFeed({ articles: initialArticles }: { articles: Arti
             <button
               key={source}
               onClick={() => selectSource(source)}
-              className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer"
+              className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer whitespace-nowrap shrink-0"
               style={{
                 color:       isActive ? color : '#9ca3af',
                 borderColor: isActive ? color : 'transparent',
               }}
             >
-              {source}
+              {SOURCE_LABELS[source] ?? source}
             </button>
           );
         })}
