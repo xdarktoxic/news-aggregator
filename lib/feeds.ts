@@ -22,7 +22,7 @@ const FEEDS = [
   { name: 'Moneycontrol', url: 'https://www.moneycontrol.com/rss/latestnews.xml' },
   { name: 'The Hindu',    url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
   { name: 'Livemint',     url: 'https://www.livemint.com/rss/news' },
-  { name: 'The Wire',     url: 'https://thewire.in/rss' },
+  { name: 'NDTV',         url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
   { name: 'Hacker News',  url: 'https://hnrss.org/frontpage' },
 ];
 

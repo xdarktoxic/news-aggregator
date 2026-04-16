@@ -27,7 +27,7 @@ export default async function Page() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Indian News</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Latest from Moneycontrol, The Hindu, Livemint, The Wire &amp; Hacker News
+          Latest from Moneycontrol, The Hindu, Livemint, NDTV &amp; Hacker News
         </p>
       </header>
 
