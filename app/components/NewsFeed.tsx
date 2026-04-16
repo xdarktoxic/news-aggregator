@@ -24,22 +24,59 @@ const SOURCE_COLORS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// getBalancedArticles — max 2 per source in the top 10
+// getBalancedArticles
+//
+// Builds the first 10 slots one at a time using a greedy pick:
+//   - Never place the same source back-to-back (no clustering)
+//   - No source gets more than 4 of the 10 slots
+//   - If unseen sources won't fit in the slots remaining, force one in
+//     so all 5 sources are guaranteed to appear
+// After the top 10, remaining articles follow in pure date order.
 // ---------------------------------------------------------------------------
 
 function getBalancedArticles(articles: Article[]): Article[] {
-  const top10Urls = new Set<string>();
+  const MAX_PER_SOURCE = 4;
+  const TOTAL = 10;
+  const sourceCounts: Record<string, number> = {};
   const top10: Article[] = [];
+  const pool = [...articles]; // already sorted newest-first
 
-  for (const source of ALL_SOURCES) {
-    const fromSource = articles.filter((a) => a.source === source).slice(0, 2);
-    for (const a of fromSource) {
-      top10.push(a);
-      top10Urls.add(a.url);
+  while (top10.length < TOTAL && pool.length > 0) {
+    const lastSource  = top10.length > 0 ? top10[top10.length - 1].source : null;
+    const slotsLeft   = TOTAL - top10.length;
+    const unseenSources = ALL_SOURCES.filter((s) => !sourceCounts[s]);
+
+    // If there are as many unseen sources as slots left, we must pick one now
+    // to guarantee every source appears at least once
+    const mustPickUnseen = unseenSources.length >= slotsLeft;
+
+    let idx: number;
+
+    if (mustPickUnseen && unseenSources.length > 0) {
+      // Prefer an unseen source that also isn't the same as the last one
+      idx = pool.findIndex(
+        (a) => unseenSources.includes(a.source) && a.source !== lastSource
+      );
+      if (idx === -1) idx = pool.findIndex((a) => unseenSources.includes(a.source));
+    } else {
+      // Normal pick: avoid same source as last, respect the per-source cap
+      idx = pool.findIndex(
+        (a) => a.source !== lastSource && (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE
+      );
+      // Fallback: relax the no-consecutive rule, just respect the cap
+      if (idx === -1) {
+        idx = pool.findIndex((a) => (sourceCounts[a.source] ?? 0) < MAX_PER_SOURCE);
+      }
     }
+
+    if (idx === -1) break;
+
+    const [article] = pool.splice(idx, 1);
+    top10.push(article);
+    sourceCounts[article.source] = (sourceCounts[article.source] ?? 0) + 1;
   }
 
-  top10.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  const top10Urls = new Set(top10.map((a) => a.url));
   const rest = articles.filter((a) => !top10Urls.has(a.url));
   return [...top10, ...rest];
 }
