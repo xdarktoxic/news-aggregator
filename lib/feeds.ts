@@ -63,7 +63,8 @@ async function fetchFeed(name: string, url: string): Promise<Article[]> {
   try {
     const feed = await parser.parseURL(url);
 
-    return feed.items.map((item) => ({
+    // Cap at 10 articles per source so no single feed dominates the page
+    return feed.items.slice(0, 10).map((item) => ({
       title:       item.title?.trim() || 'Untitled',
       url:         item.link  || '#',
       source:      name,
