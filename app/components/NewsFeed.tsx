@@ -27,26 +27,24 @@ const ALL_SOURCES = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Hacker Ne
 // ---------------------------------------------------------------------------
 
 function getBalancedArticles(articles: Article[]): Article[] {
-  // Step 1: pick the single newest article from each source
-  const pinnedUrls = new Set<string>();
-  const pinned: Article[] = [];
+  // Take the 2 newest articles from each source (2 × 5 sources = 10 slots).
+  // This hard-caps any single source at 2 of the first 10 articles,
+  // no matter how frequently that source publishes.
+  const top10Urls = new Set<string>();
+  const top10: Article[] = [];
 
   for (const source of ALL_SOURCES) {
-    const first = articles.find((a) => a.source === source);
-    if (first) {
-      pinned.push(first);
-      pinnedUrls.add(first.url);
+    const fromSource = articles.filter((a) => a.source === source).slice(0, 2);
+    for (const a of fromSource) {
+      top10.push(a);
+      top10Urls.add(a.url);
     }
   }
 
-  // Step 2: fill remaining top-10 slots with next-newest articles not already pinned
-  const unpinned = articles.filter((a) => !pinnedUrls.has(a.url));
-  const slotsLeft = 10 - pinned.length;
-  const top10 = [...pinned, ...unpinned.slice(0, slotsLeft)]
-    .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  // Sort the top 10 by date so they still appear newest-first
+  top10.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
 
-  // Step 3: append everything else in chronological order after the top 10
-  const top10Urls = new Set(top10.map((a) => a.url));
+  // Everything else follows in chronological order
   const rest = articles.filter((a) => !top10Urls.has(a.url));
 
   return [...top10, ...rest];
