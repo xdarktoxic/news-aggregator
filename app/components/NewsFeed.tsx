@@ -17,16 +17,19 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { relativeTime, type Article } from '@/lib/feeds';
 
-const ALL_SOURCES    = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India'];
+const ALL_SOURCES    = ['Economic Times', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India', 'India Today', 'Times of India', 'Firstpost'];
 const REFRESH_MS     = 15 * 60 * 1000; // 15 minutes
 const CLOCK_TICK_MS  = 60 * 1000;      // re-render "X minutes ago" every minute
 
 const SOURCE_COLORS: Record<string, string> = {
-  'Moneycontrol': '#0a7c42',
-  'The Hindu':    '#b91c1c',
-  'Livemint':     '#1d4ed8',
-  'NDTV':         '#c2410c',
-  'Yahoo India':  '#7e22ce',
+  'Economic Times': '#b45309', // amber
+  'The Hindu':      '#b91c1c', // red
+  'Livemint':       '#1d4ed8', // blue
+  'NDTV':           '#c2410c', // orange-red
+  'Yahoo India':    '#7e22ce', // purple
+  'India Today':    '#0369a1', // sky blue
+  'Times of India': '#dc2626', // bright red
+  'Firstpost':      '#047857', // green
 };
 
 // ---------------------------------------------------------------------------
@@ -49,7 +52,7 @@ function normalizeArticles(raw: (Article | (Omit<Article, 'publishedAt'> & { pub
 // ---------------------------------------------------------------------------
 
 function getBalancedArticles(articles: Article[]): Article[] {
-  const MAX_PER_SOURCE = 4;
+  const MAX_PER_SOURCE = 2; // 8 sources × max 2 = up to 16 candidates for 10 slots
   const TOTAL = 10;
   const sourceCounts: Record<string, number> = {};
   const top10: Article[] = [];

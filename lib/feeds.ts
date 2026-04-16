@@ -19,11 +19,14 @@ import Parser from 'rss-parser';
 // ---------------------------------------------------------------------------
 
 const FEEDS = [
-  { name: 'Moneycontrol', url: 'https://www.moneycontrol.com/rss/latestnews.xml' },
-  { name: 'The Hindu',    url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
-  { name: 'Livemint',     url: 'https://www.livemint.com/rss/news' },
-  { name: 'NDTV',         url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
-  { name: 'Yahoo India',  url: 'https://news.yahoo.com/rss/india' },
+  { name: 'Economic Times', url: 'https://economictimes.indiatimes.com/rssfeedstopstories.cms' },
+  { name: 'The Hindu',      url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
+  { name: 'Livemint',       url: 'https://www.livemint.com/rss/news' },
+  { name: 'NDTV',           url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
+  { name: 'Yahoo India',    url: 'https://news.yahoo.com/rss/india' },
+  { name: 'India Today',    url: 'https://www.indiatoday.in/rss/home' },
+  { name: 'Times of India', url: 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms' },
+  { name: 'Firstpost',      url: 'https://www.firstpost.com/commonfeeds/v1/mfp/rss/india.xml' },
 ];
 
 // ---------------------------------------------------------------------------

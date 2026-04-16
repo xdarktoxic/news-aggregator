@@ -19,7 +19,7 @@ export default async function Page() {
       <header className="mb-8 border-b-2 border-gray-900 pb-4">
         <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Indian News</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Moneycontrol · The Hindu · Livemint · NDTV · Yahoo India
+          Economic Times · The Hindu · Livemint · NDTV · Yahoo India · India Today · Times of India · Firstpost
         </p>
       </header>
 
