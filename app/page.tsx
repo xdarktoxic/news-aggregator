@@ -16,10 +16,10 @@ export default async function Page() {
   return (
     <main className="max-w-3xl mx-auto px-4 py-10">
 
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Indian News</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Latest from Moneycontrol, The Hindu, Livemint, NDTV &amp; Hacker News
+      <header className="mb-8 border-b-2 border-gray-900 pb-4">
+        <h1 className="text-4xl font-extrabold tracking-tight text-gray-900">Indian News</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Moneycontrol · The Hindu · Livemint · NDTV · Yahoo India
         </p>
       </header>
 

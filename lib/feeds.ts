@@ -23,7 +23,7 @@ const FEEDS = [
   { name: 'The Hindu',    url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
   { name: 'Livemint',     url: 'https://www.livemint.com/rss/news' },
   { name: 'NDTV',         url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
-  { name: 'Hacker News',  url: 'https://hnrss.org/frontpage' },
+  { name: 'Yahoo India',  url: 'https://news.yahoo.com/rss/india' },
 ];
 
 // ---------------------------------------------------------------------------

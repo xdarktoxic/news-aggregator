@@ -5,31 +5,29 @@
 // Handles source filtering and article display.
 //
 // Filter behaviour:
-//   - Default ("All"): shows all sources, with a balanced top 10
-//   - Click a source pill: shows ONLY that source's articles
-//   - Click the active pill again, or click "All": resets to all sources
-//
-// Balanced top 10 (when "All" is active):
-//   Picks the newest article from each of the 5 sources first,
-//   then fills the remaining 5 slots with the next newest articles,
-//   so one feed can never crowd out the others at the top.
+//   - Default ("All"): shows all sources with a balanced top 10 (max 2 per source)
+//   - Click a source tab: shows ONLY that source
+//   - Click the active tab again, or click "All": resets
 
 import { useState, useMemo } from 'react';
 import { relativeTime, type Article } from '@/lib/feeds';
 
-const ALL_SOURCES = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Hacker News'];
+const ALL_SOURCES = ['Moneycontrol', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India'];
+
+// A distinct accent color for each source — used on the source label and active tab indicator
+const SOURCE_COLORS: Record<string, string> = {
+  'Moneycontrol': '#0a7c42',
+  'The Hindu':    '#b91c1c',
+  'Livemint':     '#1d4ed8',
+  'NDTV':         '#c2410c',
+  'Yahoo India':  '#7e22ce',
+};
 
 // ---------------------------------------------------------------------------
-// getBalancedArticles
-//
-// Ensures the first 10 articles always include at least one from each source.
-// After the top 10, remaining articles continue in chronological order.
+// getBalancedArticles — max 2 per source in the top 10
 // ---------------------------------------------------------------------------
 
 function getBalancedArticles(articles: Article[]): Article[] {
-  // Take the 2 newest articles from each source (2 × 5 sources = 10 slots).
-  // This hard-caps any single source at 2 of the first 10 articles,
-  // no matter how frequently that source publishes.
   const top10Urls = new Set<string>();
   const top10: Article[] = [];
 
@@ -41,12 +39,8 @@ function getBalancedArticles(articles: Article[]): Article[] {
     }
   }
 
-  // Sort the top 10 by date so they still appear newest-first
   top10.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
-
-  // Everything else follows in chronological order
   const rest = articles.filter((a) => !top10Urls.has(a.url));
-
   return [...top10, ...rest];
 }
 
@@ -55,66 +49,65 @@ function getBalancedArticles(articles: Article[]): Article[] {
 // ---------------------------------------------------------------------------
 
 export default function NewsFeed({ articles }: { articles: Article[] }) {
-  // null = "All" mode, string = single source selected exclusively
   const [activeSource, setActiveSource] = useState<string | null>(null);
 
   function selectSource(source: string) {
-    // Clicking the already-active pill resets to "All"
     setActiveSource((prev) => (prev === source ? null : source));
   }
 
   const visible = useMemo(() => {
     if (activeSource !== null) {
-      // Show only the selected source
       return articles.filter((a) => a.source === activeSource);
     }
-    // Show all sources with balanced top 10
     return getBalancedArticles(articles);
   }, [articles, activeSource]);
 
   return (
     <>
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* Source filter tabs */}
+      <div className="flex flex-wrap gap-x-6 gap-y-2 mb-6 border-b border-gray-200 pb-3">
 
-        {/* "All" pill — resets to the balanced full feed */}
         <button
           onClick={() => setActiveSource(null)}
-          className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors cursor-pointer ${
+          className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer"
+          style={
             activeSource === null
-              ? 'bg-gray-800 text-white border-gray-800'
-              : 'bg-white text-gray-400 border-gray-300 hover:border-gray-500 hover:text-gray-600'
-          }`}
+              ? { color: '#111827', borderColor: '#111827' }
+              : { color: '#9ca3af', borderColor: 'transparent' }
+          }
         >
           All
         </button>
 
-        {/* One pill per source */}
-        {ALL_SOURCES.map((source) => (
-          <button
-            key={source}
-            onClick={() => selectSource(source)}
-            className={`px-3 py-1 rounded-full text-sm font-medium border transition-colors cursor-pointer ${
-              activeSource === source
-                ? 'bg-gray-800 text-white border-gray-800'
-                : 'bg-white text-gray-400 border-gray-300 hover:border-gray-500 hover:text-gray-600'
-            }`}
-          >
-            {source}
-          </button>
-        ))}
+        {ALL_SOURCES.map((source) => {
+          const isActive = activeSource === source;
+          const color = SOURCE_COLORS[source];
+          return (
+            <button
+              key={source}
+              onClick={() => selectSource(source)}
+              className="text-sm font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer"
+              style={{
+                color:       isActive ? color : '#9ca3af',
+                borderColor: isActive ? color : 'transparent',
+              }}
+            >
+              {source}
+            </button>
+          );
+        })}
 
       </div>
 
-      {/* Empty state (e.g. a source returned 0 articles) */}
+      {/* Empty state */}
       {visible.length === 0 && (
-        <p className="text-gray-400 text-sm">No articles available for this source right now.</p>
+        <p className="text-gray-400 text-sm mt-4">No articles available right now.</p>
       )}
 
       {/* Article list */}
-      <ul className="space-y-4">
+      <ul>
         {visible.map((article, index) => (
-          <ArticleCard key={`${article.url}-${index}`} article={article} />
+          <ArticleRow key={`${article.url}-${index}`} article={article} />
         ))}
       </ul>
     </>
@@ -122,31 +115,37 @@ export default function NewsFeed({ articles }: { articles: Article[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// ArticleCard
+// ArticleRow — editorial list style, no card box
 // ---------------------------------------------------------------------------
 
-function ArticleCard({ article }: { article: Article }) {
-  return (
-    <li className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+function ArticleRow({ article }: { article: Article }) {
+  const color = SOURCE_COLORS[article.source] ?? '#374151';
 
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-semibold text-white bg-gray-700 rounded px-2 py-0.5">
+  return (
+    <li className="py-4 border-b border-gray-100 last:border-0">
+
+      {/* Source + timestamp on one line */}
+      <div className="flex items-center gap-2 mb-1">
+        <span
+          className="text-xs font-bold uppercase tracking-wide"
+          style={{ color }}
+        >
           {article.source}
         </span>
-        <span className="text-xs text-gray-400">
-          {relativeTime(article.publishedAt)}
-        </span>
+        <span className="text-xs text-gray-400">{relativeTime(article.publishedAt)}</span>
       </div>
 
+      {/* Headline */}
       <a
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-base font-semibold text-gray-900 hover:text-blue-600 hover:underline leading-snug block"
+        className="text-[15px] font-semibold text-gray-900 leading-snug hover:underline decoration-gray-400 underline-offset-2 block"
       >
         {article.title}
       </a>
 
+      {/* Snippet */}
       {article.snippet && (
         <p className="text-sm text-gray-500 mt-1 leading-relaxed">
           {article.snippet}
