@@ -18,6 +18,7 @@
 // algorithm later (e.g. embedding-based AI clustering) without touching components.
 
 import type { Article } from './feeds';
+import { majorityCategory, type Category } from './categorize';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,7 @@ export type Cluster = {
   sources: string[];   // unique source names in this cluster
   latestAt: Date;
   isTrending: boolean; // true when 3+ unique sources cover this story
+  category: Category;  // majority category across all articles in the cluster
 };
 
 // ---------------------------------------------------------------------------
@@ -134,6 +136,7 @@ export function clusterArticles(articles: Article[]): Cluster[] {
       sources,
       latestAt:    latest.publishedAt,
       isTrending:  sources.length >= 3,
+      category:    majorityCategory(sorted.map((a) => a.category)),
     };
   });
 

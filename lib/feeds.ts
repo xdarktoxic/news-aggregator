@@ -13,6 +13,7 @@
 //   5. If a feed fails, it logs the error and moves on — the page still loads
 
 import Parser from 'rss-parser';
+import { categorize, type Category } from './categorize';
 
 // ---------------------------------------------------------------------------
 // Feed sources
@@ -42,6 +43,7 @@ export type Article = {
   source: string;      // Feed name, e.g. "The Hindu"
   publishedAt: Date;   // When it was published
   snippet: string;     // Short description, truncated to ~200 chars
+  category: Category;  // Auto-tagged via keyword matching
 };
 
 // ---------------------------------------------------------------------------
@@ -67,13 +69,18 @@ async function fetchFeed(name: string, url: string): Promise<Article[]> {
     const feed = await parser.parseURL(url);
 
     // Cap at 10 articles per source so no single feed dominates the page
-    return feed.items.slice(0, 10).map((item) => ({
-      title:       item.title?.trim() || 'Untitled',
-      url:         item.link  || '#',
-      source:      name,
-      publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(0),
-      snippet:     truncate(stripHtml(item.contentSnippet || item.content || ''), 200),
-    }));
+    return feed.items.slice(0, 10).map((item) => {
+      const title   = item.title?.trim() || 'Untitled';
+      const snippet = truncate(stripHtml(item.contentSnippet || item.content || ''), 200);
+      return {
+        title,
+        url:         item.link || '#',
+        source:      name,
+        publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(0),
+        snippet,
+        category:    categorize(title, snippet),
+      };
+    });
 
   } catch (err) {
     // Log the error so you can see it in Vercel's logs, but don't crash
