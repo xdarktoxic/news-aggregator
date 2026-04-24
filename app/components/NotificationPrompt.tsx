@@ -20,11 +20,26 @@ export default function NotificationPrompt() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // If permission already granted, silently re-register token under the
+    // correct SW scope without showing any prompt.
+    if ("Notification" in window && Notification.permission === "granted") {
+      requestNotificationToken().then((token) => {
+        if (token) {
+          fetch("/api/register-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          }).catch(() => {});
+        }
+      });
+      return;
+    }
+
     if (localStorage.getItem(DISMISS_KEY)) return;
 
     const t = setTimeout(() => {
       if (isIos() && !isStandalone()) {
-        // iOS Safari regular browser — push requires PWA install first
         setMode("install");
       } else if ("Notification" in window && Notification.permission === "default") {
         setMode("notify");
