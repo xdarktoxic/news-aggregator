@@ -3,6 +3,7 @@ import { Playfair_Display, DM_Sans } from "next/font/google";
 import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import NotificationPrompt from "./components/NotificationPrompt";
+import NotifNavigator from "./components/NotifNavigator";
 import "./globals.css";
 
 const GA_ID = "G-5B98C1FZNH";
@@ -42,6 +43,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <NotificationPrompt />
+        <NotifNavigator />
         <Analytics />
         <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
         <Script id="ga-init" strategy="afterInteractive">{`

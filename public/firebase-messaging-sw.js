@@ -1,7 +1,3 @@
-// We don't call firebase.messaging() here — instead we handle the push event
-// ourselves so the notification data structure is simple and predictable.
-// The browser-side Firebase SDK still handles token registration fine without it.
-
 importScripts('https://www.gstatic.com/firebasejs/12.12.1/firebase-app-compat.js');
 
 firebase.initializeApp({
@@ -17,15 +13,14 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
 
 self.addEventListener('push', function (event) {
-  let data = {};
+  var data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) {}
 
-  const title = (data.notification && data.notification.title) || 'Pulse';
-  const body  = (data.notification && data.notification.body)  || '';
-  // fcmOptions.link is the absolute URL we set in push.ts via APP_URL
-  const url   = (data.fcmOptions && data.fcmOptions.link)
-              || (data.data && data.data.url)
-              || 'https://news-aggregator-taupe-rho.vercel.app';
+  var title = (data.notification && data.notification.title) || 'Pulse';
+  var body  = (data.notification && data.notification.body)  || '';
+  var url   = (data.fcmOptions && data.fcmOptions.link)
+            || (data.data && data.data.url)
+            || 'https://news-aggregator-taupe-rho.vercel.app';
 
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -40,5 +35,19 @@ self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = (event.notification.data && event.notification.data.url)
           || 'https://news-aggregator-taupe-rho.vercel.app';
-  event.waitUntil(clients.openWindow(url));
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+      // If Pulse is already open, tell it to navigate via postMessage
+      // and bring it to front. This is the reliable path on Safari.
+      if (list.length > 0) {
+        var c = list[0];
+        c.postMessage({ type: 'NOTIF_CLICK', url: url });
+        return c.focus();
+      }
+      // No open window — open one. Safari may open the origin root
+      // instead of the exact URL; the app will handle the redirect.
+      return clients.openWindow(url);
+    })
+  );
 });
