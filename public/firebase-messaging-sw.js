@@ -32,20 +32,13 @@ self.addEventListener('push', function (event) {
   );
 });
 
-// DIAGNOSTIC: shows a second notification on click to confirm the event fires.
-// If you see "Click received!" appear after tapping, notificationclick works.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = (event.notification.data && event.notification.data.url)
           || 'https://news-aggregator-taupe-rho.vercel.app';
 
   event.waitUntil(
-    self.registration.showNotification('✅ Click received!', {
-      body: 'notificationclick fired — url: ' + url,
-      data: {},
-    }).then(function () {
-      return clients.matchAll({ type: 'window', includeUncontrolled: true });
-    }).then(function (list) {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
       if (list.length > 0) {
         list[0].postMessage({ type: 'NOTIF_CLICK', url: url });
         return list[0].focus();

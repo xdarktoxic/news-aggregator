@@ -31,7 +31,15 @@ export async function requestNotificationToken(): Promise<string | null> {
 
   const messaging = getMessaging(firebaseApp);
   try {
-    return await getToken(messaging, { vapidKey: VAPID_KEY });
+    // Explicitly register the SW with scope "/" so Firebase uses our SW
+    // at full site scope rather than its default restricted scope
+    // (/firebase-cloud-messaging-push-scope), which blocks clients.openWindow()
+    // and notificationclick from working correctly on Safari.
+    const swReg = await navigator.serviceWorker.register(
+      "/firebase-messaging-sw.js",
+      { scope: "/" }
+    );
+    return await getToken(messaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
   } catch (err) {
     console.error("getToken failed", err);
     return null;
