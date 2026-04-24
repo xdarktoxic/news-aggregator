@@ -12,32 +12,27 @@ firebase.initializeApp({
 
 firebase.messaging();
 
-// FCM shows the notification but does not open anything on tap without this.
-// When a background message arrives, FCM stores the payload in
-// event.notification.data.FCM_MSG. We pull the URL from there (data.url) or
-// fall back to fcmOptions.link, then navigate the app to that path.
+// Force this SW to activate immediately instead of waiting for old tabs to close.
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
+});
+
+// FCM stores the push payload under event.notification.data.FCM_MSG.
+// We pull the absolute click URL from fcmOptions.link (set by push.ts via
+// APP_URL), falling back to the relative path in data.url.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
   const fcmMsg = (event.notification.data || {}).FCM_MSG || {};
+  // Prefer the absolute URL so clients.openWindow always works cross-browser.
   const url =
-    fcmMsg.data?.url ||
     fcmMsg.fcmOptions?.link ||
+    fcmMsg.data?.url ||
     event.notification.data?.url ||
     '/';
 
-  event.waitUntil(
-    clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then(function (windowClients) {
-        // If Pulse is already open, navigate that tab and bring it to front.
-        for (const client of windowClients) {
-          if ('navigate' in client) {
-            return client.navigate(url).then((c) => c && c.focus());
-          }
-        }
-        // Otherwise open a new tab.
-        return clients.openWindow(url);
-      })
-  );
+  event.waitUntil(clients.openWindow(url));
 });
