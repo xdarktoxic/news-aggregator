@@ -12,14 +12,17 @@ firebase.initializeApp({
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
 
+// Data-only FCM messages always arrive here (no browser interception).
+// Title/body/url are in event.data.json().data — the FCM `data` field.
 self.addEventListener('push', function (event) {
-  var data = {};
-  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  var payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch (e) {}
 
-  var title = (data.notification && data.notification.title) || 'Pulse';
-  var body  = (data.notification && data.notification.body)  || '';
-  var url   = (data.fcmOptions && data.fcmOptions.link)
-            || (data.data && data.data.url)
+  var d     = payload.data || {};
+  var title = d.title || 'Pulse';
+  var body  = d.body  || '';
+  var url   = (payload.fcmOptions && payload.fcmOptions.link)
+            || d.url
             || 'https://news-aggregator-taupe-rho.vercel.app';
 
   event.waitUntil(
@@ -38,15 +41,11 @@ self.addEventListener('notificationclick', function (event) {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
-      // If Pulse is already open, tell it to navigate via postMessage
-      // and bring it to front. This is the reliable path on Safari.
       if (list.length > 0) {
-        var c = list[0];
-        c.postMessage({ type: 'NOTIF_CLICK', url: url });
-        return c.focus();
+        // Pulse is open — postMessage navigates it, focus brings it front.
+        list[0].postMessage({ type: 'NOTIF_CLICK', url: url });
+        return list[0].focus();
       }
-      // No open window — open one. Safari may open the origin root
-      // instead of the exact URL; the app will handle the redirect.
       return clients.openWindow(url);
     })
   );

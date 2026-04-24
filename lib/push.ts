@@ -73,14 +73,22 @@ export async function sendPushToAll(payload: PushPayload): Promise<PushResult> {
     ? payload.url.startsWith("http") ? payload.url : `${baseUrl}${payload.url}`
     : baseUrl || "/";
 
+  // Send as a data-only message (no top-level `notification` field).
+  // When `notification` is present, browsers display it directly and bypass
+  // the SW's push handler — so the notification has no data.url and clicks
+  // do nothing. Data-only forces the push through our SW's push handler,
+  // which shows the notification with data.url baked in.
+  data.title = payload.title;
+  data.body  = payload.body;
+
   for (let i = 0; i < tokens.length; i += FCM_BATCH_LIMIT) {
     const batch = tokens.slice(i, i + FCM_BATCH_LIMIT);
     const res = await messaging.sendEachForMulticast({
       tokens: batch,
-      notification: { title: payload.title, body: payload.body },
       data,
       webpush: {
         fcmOptions: { link: clickUrl },
+        headers: { Urgency: "high" },
       },
     });
     succeeded += res.successCount;
