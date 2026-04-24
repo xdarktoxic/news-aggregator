@@ -37,8 +37,7 @@ export async function POST(req: Request) {
     const result = await sendPushToAll({ title, body, url });
     return NextResponse.json(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     console.error("[notify] failed", err);
-    return NextResponse.json({ error: "failed", detail: msg }, { status: 500 });
+    return NextResponse.json({ error: "failed" }, { status: 500 });
   }
 }
