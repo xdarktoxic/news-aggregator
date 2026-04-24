@@ -12,8 +12,6 @@ firebase.initializeApp({
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(clients.claim()));
 
-// Data-only FCM messages always arrive here (no browser interception).
-// Title/body/url are in event.data.json().data — the FCM `data` field.
 self.addEventListener('push', function (event) {
   var payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch (e) {}
@@ -34,15 +32,21 @@ self.addEventListener('push', function (event) {
   );
 });
 
+// DIAGNOSTIC: shows a second notification on click to confirm the event fires.
+// If you see "Click received!" appear after tapping, notificationclick works.
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = (event.notification.data && event.notification.data.url)
           || 'https://news-aggregator-taupe-rho.vercel.app';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    self.registration.showNotification('✅ Click received!', {
+      body: 'notificationclick fired — url: ' + url,
+      data: {},
+    }).then(function () {
+      return clients.matchAll({ type: 'window', includeUncontrolled: true });
+    }).then(function (list) {
       if (list.length > 0) {
-        // Pulse is open — postMessage navigates it, focus brings it front.
         list[0].postMessage({ type: 'NOTIF_CLICK', url: url });
         return list[0].focus();
       }
