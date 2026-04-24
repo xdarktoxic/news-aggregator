@@ -1,30 +1,23 @@
 'use client';
 
 // app/components/NewsFeed.tsx
-//
-// Handles source filtering, category filtering, story clustering,
-// article display, and auto-refresh.
-//
-// Filter logic:
-//   - Source filter and category filter work together (AND)
-//   - Both default to "All" (no filter)
-//   - Clicking an active filter resets it to "All"
-//
-// Clustering:
-//   - Active in "All source" mode only (disabled when a source is selected)
-//   - Applied AFTER category filter, so selecting "Politics" shows clustered political stories
-//   - Multi-source clusters → ClusterCard; single-source → ArticleRow
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { relativeTime, type Article } from '@/lib/feeds';
 import { clusterArticles, type Cluster } from '@/lib/cluster';
 import { CATEGORY_PRIORITY, type Category } from '@/lib/categorize';
+import type { ArticleInput } from '@/lib/summarize';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const ALL_SOURCES   = ['Economic Times', 'The Hindu', 'Livemint', 'NDTV', 'Yahoo India', 'India Today', 'Times of India', 'Hindustan Times'];
+const ALL_SOURCES = [
+  'Economic Times', 'The Hindu', 'Livemint', 'NDTV',
+  'Indian Express', 'India Today', 'Times of India', 'Hindustan Times',
+  'CNBC-TV18',
+];
+
 const REFRESH_MS    = 15 * 60 * 1000;
 const CLOCK_TICK_MS = 60 * 1000;
 
@@ -32,40 +25,41 @@ const SOURCE_LABELS: Record<string, string> = {
   'Economic Times':  'ET',
   'Times of India':  'TOI',
   'Hindustan Times': 'HT',
+  'Indian Express':  'IE',
+  'CNBC-TV18':       'CNBC',
 };
 
 const SOURCE_COLORS: Record<string, string> = {
-  'Economic Times':  '#b45309',
-  'The Hindu':       '#b91c1c',
-  'Livemint':        '#1d4ed8',
-  'NDTV':            '#c2410c',
-  'Yahoo India':     '#7e22ce',
-  'India Today':     '#0369a1',
-  'Times of India':  '#dc2626',
-  'Hindustan Times': '#0f766e',
+  'Economic Times':  '#f59e0b',
+  'The Hindu':       '#f87171',
+  'Livemint':        '#60a5fa',
+  'NDTV':            '#fb923c',
+  'Indian Express':  '#a78bfa',
+  'India Today':     '#38bdf8',
+  'Times of India':  '#f87171',
+  'Hindustan Times': '#2dd4bf',
+  'CNBC-TV18':       '#f43f5e',
 };
 
-// Tab underline color + pill background/text for each category
-const CATEGORY_STYLE: Record<Category, { tab: string; bg: string; text: string }> = {
-  Politics:      { tab: '#1d4ed8', bg: '#eff6ff', text: '#1d4ed8' },
-  Markets:       { tab: '#16a34a', bg: '#f0fdf4', text: '#15803d' },
-  Sports:        { tab: '#ea580c', bg: '#fff7ed', text: '#c2410c' },
-  World:         { tab: '#dc2626', bg: '#fef2f2', text: '#b91c1c' },
-  Tech:          { tab: '#7c3aed', bg: '#f5f3ff', text: '#6d28d9' },
-  Entertainment: { tab: '#c026d3', bg: '#fdf4ff', text: '#a21caf' },
-  Lifestyle:     { tab: '#0d9488', bg: '#f0fdfa', text: '#0f766e' },
-  General:       { tab: '#6b7280', bg: '#f9fafb', text: '#4b5563' },
+const CATEGORY_COLOR: Record<Category, string> = {
+  Politics:      '#3b82f6',
+  Markets:       '#22c55e',
+  Sports:        '#f97316',
+  World:         '#ef4444',
+  Tech:          '#a855f7',
+  Entertainment: '#ec4899',
+  Lifestyle:     '#14b8a6',
+  General:       '#6b7280',
 };
 
-// Display categories in filter row (skip General — it's the default)
 const FILTER_CATEGORIES = CATEGORY_PRIORITY.filter((c) => c !== 'General');
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function sourceLabel(source: string) {
-  return SOURCE_LABELS[source] ?? source;
+function sourceLabel(s: string) {
+  return SOURCE_LABELS[s] ?? s;
 }
 
 function normalizeArticles(
@@ -78,142 +72,368 @@ function normalizeArticles(
   }));
 }
 
+function clientCacheKey(articles: Array<{ url: string }>): string {
+  return [...articles].map((a) => a.url).sort().join('|');
+}
+
+// Hide snippet if it's too similar to the headline (>80% word overlap)
+function isSimilarToHeadline(headline: string, snippet: string): boolean {
+  if (!snippet || snippet.length < 10) return false;
+  const words = (s: string) =>
+    new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w) => w.length > 2));
+  const wH = words(headline);
+  const wS = words(snippet);
+  const [smaller, larger] = wH.size <= wS.size ? [wH, wS] : [wS, wH];
+  if (smaller.size === 0) return false;
+  let overlap = 0;
+  for (const w of smaller) if (larger.has(w)) overlap++;
+  return overlap / smaller.size > 0.8;
+}
+
+// Strip markdown artifacts (e.g. stray #) from AI-generated text
+function cleanAI(text: string): string {
+  return text.replace(/#/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 // ---------------------------------------------------------------------------
 // NewsFeed
 // ---------------------------------------------------------------------------
 
 export default function NewsFeed({ articles: initialArticles }: { articles: Article[] }) {
-  const [articles,      setArticles]      = useState<Article[]>(() => normalizeArticles(initialArticles));
-  const [lastUpdated,   setLastUpdated]   = useState<Date>(() => new Date());
-  const [,              clockTick]        = useState(0);
-  const [activeSource,  setActiveSource]  = useState<string | null>(null);
+  const [articles,       setArticles]      = useState<Article[]>(() => normalizeArticles(initialArticles));
+  const [lastUpdated,    setLastUpdated]   = useState<Date>(() => new Date());
+  const [,               clockTick]        = useState(0);
+  const [activeSource,   setActiveSource]  = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<Category | null>(null);
+  const [isFlashing,     setIsFlashing]    = useState(false);
+  const [summaries,      setSummaries]     = useState<Map<string, string>>(new Map());
+  const [isLoading,      setIsLoading]     = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const flashTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchedKeys = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
+    setIsLoading(true);
     try {
       const res = await fetch('/api/articles');
       if (!res.ok) return;
       setArticles(normalizeArticles(await res.json()));
       setLastUpdated(new Date());
-    } catch {
-      // Keep existing articles on failure
-    }
+      setIsFlashing(false);
+      requestAnimationFrame(() => setIsFlashing(true));
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setIsFlashing(false), 700);
+    } catch {}
+    finally { setIsLoading(false); }
   }, []);
 
   useEffect(() => {
     const ri = setInterval(refresh, REFRESH_MS);
     const ci = setInterval(() => clockTick((n) => n + 1), CLOCK_TICK_MS);
-    return () => { clearInterval(ri); clearInterval(ci); };
+    return () => {
+      clearInterval(ri);
+      clearInterval(ci);
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    };
   }, [refresh]);
 
-  function selectSource(source: string) {
-    setActiveSource((prev) => (prev === source ? null : source));
-  }
-
-  function selectCategory(cat: Category) {
-    setActiveCategory((prev) => (prev === cat ? null : cat));
-  }
+  useEffect(() => {
+    const onScroll = () => {
+      const total = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(total > 0 ? (window.scrollY / total) * 100 : 0);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const view = useMemo(() => {
-    // Apply both filters (AND logic)
     let filtered = articles;
     if (activeSource   !== null) filtered = filtered.filter((a) => a.source   === activeSource);
     if (activeCategory !== null) filtered = filtered.filter((a) => a.category === activeCategory);
-
-    // Cluster only when no source is selected
-    if (activeSource !== null) {
-      return { mode: 'list' as const, items: filtered };
-    }
+    if (activeSource !== null) return { mode: 'list' as const, items: filtered };
     return { mode: 'clusters' as const, items: clusterArticles(filtered) };
   }, [articles, activeSource, activeCategory]);
 
+  const trendingClusters = useMemo(() =>
+    view.mode === 'clusters' ? (view.items as Cluster[]).filter((c) => c.isTrending) : [],
+  [view]);
+
+  const latestClusters = useMemo(() =>
+    view.mode === 'clusters' ? (view.items as Cluster[]).filter((c) => !c.isTrending) : [],
+  [view]);
+
+  const listArticles = useMemo(() =>
+    view.mode === 'list' ? (view.items as Article[]) : [],
+  [view]);
+
+  // All non-trending clusters sorted newest-first — pure chronological, no type priority
+  const moreStoriesItems = useMemo(() =>
+    [...latestClusters].sort((a, b) => {
+      const ta = a.articles[0]?.publishedAt?.getTime() ?? 0;
+      const tb = b.articles[0]?.publishedAt?.getTime() ?? 0;
+      return tb - ta;
+    }),
+  [latestClusters]);
+
+  useEffect(() => {
+    for (const cluster of trendingClusters) {
+      const key = clientCacheKey(cluster.articles);
+      if (fetchedKeys.current.has(key)) continue;
+      fetchedKeys.current.add(key);
+      const payload: ArticleInput[] = cluster.articles.map((a) => ({
+        source: a.source, title: a.title, snippet: a.snippet, url: a.url,
+      }));
+      fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articles: payload }),
+      })
+        .then((r) => r.json())
+        .then(({ summary }: { summary: string | null }) => {
+          if (summary) setSummaries((prev) => new Map(prev).set(key, cleanAI(summary)));
+        })
+        .catch(() => {});
+    }
+  }, [trendingClusters]);
+
+  const isEmpty =
+    trendingClusters.length === 0 && latestClusters.length === 0 && listArticles.length === 0;
+
   return (
     <>
-      <p className="text-xs text-gray-400 mb-4">
-        Last updated: {relativeTime(lastUpdated)}
+      {/* Scroll progress bar */}
+      <div className="scroll-progress" style={{ width: `${scrollProgress}%` }} />
+
+      {/* Loading shimmer bar */}
+      {isLoading && <div className="loading-bar" />}
+
+      {/* Tagline + Updated — single centered line */}
+      <p
+        className={`pulse-tagline text-center mb-4 ${isFlashing ? 'flash-update' : ''}`}
+        style={{
+          fontFamily:    'var(--font-sans)',
+          color:         '#c0c0c0',
+          letterSpacing: '0.5px',
+        }}
+      >
+        Your news. Synthesized.&nbsp;&nbsp;·&nbsp;&nbsp;Updated {relativeTime(lastUpdated)}
       </p>
 
-      {/* ── Row 1: Source filter tabs ── */}
-      <div className="flex gap-x-6 border-b border-gray-200 pb-3 overflow-x-auto scrollbar-none">
-        <TabButton
-          label="All"
-          isActive={activeSource === null}
-          activeColor="#111827"
-          onClick={() => setActiveSource(null)}
-        />
-        {ALL_SOURCES.map((source) => (
-          <TabButton
-            key={source}
-            label={sourceLabel(source)}
-            isActive={activeSource === source}
-            activeColor={SOURCE_COLORS[source]}
-            onClick={() => selectSource(source)}
-          />
-        ))}
+      {/* Masthead divider */}
+      <div style={{ borderTop: '1px solid #222222', marginBottom: '20px' }} />
+
+      {/* ── Source filter pills — centered ── */}
+      <div className="overflow-x-auto scrollbar-none mb-2">
+        <div className="flex justify-center gap-2" style={{ minWidth: 'max-content', margin: '0 auto' }}>
+          <FilterPill label="All" isActive={activeSource === null} onClick={() => setActiveSource(null)} />
+          {ALL_SOURCES.map((source) => (
+            <FilterPill
+              key={source}
+              label={sourceLabel(source)}
+              isActive={activeSource === source}
+              onClick={() => setActiveSource((prev) => (prev === source ? null : source))}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* ── Row 2: Category filter tabs ── */}
-      <div className="flex gap-x-5 mt-3 mb-6 border-b border-gray-100 pb-3 overflow-x-auto scrollbar-none">
-        <TabButton
-          label="All topics"
-          isActive={activeCategory === null}
-          activeColor="#111827"
-          onClick={() => setActiveCategory(null)}
-          small
-        />
-        {FILTER_CATEGORIES.map((cat) => (
-          <TabButton
-            key={cat}
-            label={cat}
-            isActive={activeCategory === cat}
-            activeColor={CATEGORY_STYLE[cat].tab}
-            onClick={() => selectCategory(cat)}
-            small
-          />
-        ))}
+      {/* ── Category filter pills — centered ── */}
+      <div className="overflow-x-auto scrollbar-none mb-8" style={{ paddingBottom: '4px' }}>
+        <div className="flex justify-center gap-2" style={{ minWidth: 'max-content', margin: '0 auto' }}>
+          <FilterPill label="All topics" isActive={activeCategory === null} onClick={() => setActiveCategory(null)} small />
+          {FILTER_CATEGORIES.map((cat) => (
+            <FilterPill
+              key={cat}
+              label={cat}
+              isActive={activeCategory === cat}
+              onClick={() => setActiveCategory((prev) => (prev === cat ? null : cat))}
+              small
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Article / cluster list */}
-      {view.items.length === 0 && (
-        <p className="text-gray-400 text-sm mt-4">No articles match the selected filters.</p>
+      {isEmpty && (
+        <p className="text-center" style={{ color: '#555555', fontSize: '14px' }}>
+          No articles match the selected filters.
+        </p>
       )}
 
-      <ul>
-        {view.mode === 'list'
-          ? view.items.map((article, i) => (
-              <ArticleRow key={`${article.url}-${i}`} article={article} />
-            ))
-          : view.items.map((cluster) =>
-              cluster.sources.length >= 2
-                ? <ClusterCard key={cluster.id} cluster={cluster} />
-                : <ArticleRow key={cluster.id} article={cluster.articles[0]} />
-            )
-        }
-      </ul>
+      {/* ── TRENDING ── */}
+      {trendingClusters.length > 0 && (
+        <section>
+          <SectionHeader label="Trending" color="#ef4444" pulse size="14px" />
+          <div className="flex flex-col" style={{ gap: '12px' }}>
+            {trendingClusters.map((cluster, i) => (
+              <TrendingCard
+                key={cluster.id}
+                cluster={cluster}
+                index={i}
+                summary={summaries.get(clientCacheKey(cluster.articles))}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Divider between sections ── */}
+      {trendingClusters.length > 0 && (moreStoriesItems.length > 0 || listArticles.length > 0) && (
+        <div style={{ marginTop: '32px', borderTop: '1px solid #222222', marginBottom: '16px' }} />
+      )}
+
+      {/* ── MORE STORIES — unified chronological feed with time-block sub-headers ── */}
+      {moreStoriesItems.length > 0 && (
+        <section>
+          <SectionHeader label="More Stories" color="#e5e5e5" rule size="15px" />
+          {groupClustersByTime(moreStoriesItems).map((bucket, bi) => (
+            <div key={bucket.label}>
+              {/* Time bucket sub-header */}
+              <div style={{
+                display:      'flex',
+                alignItems:   'center',
+                gap:          '12px',
+                marginTop:    bi === 0 ? '4px' : '24px',
+                marginBottom: '10px',
+              }}>
+                <span style={{
+                  fontFamily:    'var(--font-sans)',
+                  fontSize:      '13px',
+                  fontWeight:    700,
+                  textTransform: 'uppercase' as const,
+                  letterSpacing: '2px',
+                  color:         '#c0c0c0',
+                  whiteSpace:    'nowrap',
+                }}>
+                  {bucket.label}
+                </span>
+                {bucket.label !== 'Just now' && (
+                  <div style={{ flex: 1, height: '1px', backgroundColor: '#333333' }} />
+                )}
+              </div>
+              {/* Cards — uniform gap */}
+              <div className="flex flex-col" style={{ gap: '8px' }}>
+                {bucket.clusters.map((cluster, i) => (
+                  <StoryCard key={cluster.id} cluster={cluster} index={i} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* ── LIST MODE (source filter active) ── */}
+      {listArticles.length > 0 && (
+        <div className="flex flex-col" style={{ gap: '8px' }}>
+          {listArticles.map((article, i) => (
+            <ArticleRow key={`${article.url}-${i}`} article={article} index={i} />
+          ))}
+        </div>
+      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// TabButton — reused for both filter rows
+// Helpers (component-local)
 // ---------------------------------------------------------------------------
 
-function TabButton({
-  label, isActive, activeColor, onClick, small = false,
-}: {
-  label: string;
-  isActive: boolean;
-  activeColor: string;
-  onClick: () => void;
-  small?: boolean;
+// Shows first 3 sources, then "+X more" — avoids long comma chains at 5+ sources
+function SourceList({ sources }: { sources: string[] }) {
+  const visible = sources.slice(0, 3);
+  const extra   = sources.length - 3;
+  return (
+    <>
+      {visible.map((s) => sourceLabel(s)).join(' · ')}
+      {extra > 0 && <span style={{ color: '#555555' }}> +{extra} more</span>}
+    </>
+  );
+}
+
+// Groups clusters into time buckets (newest-first within each bucket)
+function groupClustersByTime(clusters: Cluster[]): { label: string; clusters: Cluster[] }[] {
+  const now   = Date.now();
+  const order = ['Just now', 'Few hours ago', 'Earlier today'] as const;
+  const map   = Object.fromEntries(order.map((l) => [l, [] as Cluster[]]));
+
+  for (const c of clusters) {
+    const date = c.articles[0]?.publishedAt;
+    const mins = date ? (now - date.getTime()) / 60_000 : Infinity;
+    const label =
+      mins < 60  ? 'Just now'
+      : mins < 240 ? 'Few hours ago'
+      :              'Earlier today';
+    map[label].push(c);
+  }
+
+  return order
+    .filter((l) => map[l].length > 0)
+    .map((l) => ({ label: l, clusters: map[l] }));
+}
+
+// Short timestamps for single-source article rows ("8m" instead of "8m ago")
+function shortTime(date: Date): string {
+  const diffMs   = Date.now() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins <  1)  return 'now';
+  if (diffMins < 60)  return `${diffMins}m`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  return `${Math.floor(diffHours / 24)}d`;
+}
+
+// ---------------------------------------------------------------------------
+// SectionHeader
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ label, color, pulse = false, rule = false, size = '14px' }: {
+  label: string; color: string; pulse?: boolean; rule?: boolean; size?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 mb-3 card-animate">
+      {pulse && (
+        <span
+          className="heartbeat shrink-0 rounded-full"
+          style={{ width: '10px', height: '10px', backgroundColor: color }}
+        />
+      )}
+      <span style={{
+        color,
+        fontSize:      size,
+        fontWeight:    700,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '3px',
+        fontFamily:    'var(--font-sans)',
+        whiteSpace:    'nowrap',
+      }}>
+        {label}
+      </span>
+      {rule && (
+        <div style={{ flex: 1, height: '1px', backgroundColor: '#333333' }} />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FilterPill
+// ---------------------------------------------------------------------------
+
+function FilterPill({ label, isActive, onClick, small = false }: {
+  label: string; isActive: boolean; onClick: () => void; small?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`${small ? 'text-xs' : 'text-sm'} font-semibold pb-3 -mb-3 transition-colors border-b-2 cursor-pointer whitespace-nowrap shrink-0`}
+      className="filter-pill shrink-0 cursor-pointer transition-all duration-200"
       style={{
-        color:       isActive ? activeColor : '#9ca3af',
-        borderColor: isActive ? activeColor : 'transparent',
+        fontFamily:      'var(--font-sans)',
+        fontSize:        '13px',
+        fontWeight:      isActive ? 600 : 400,
+        padding:         small ? '5px 14px' : '8px 16px',
+        borderRadius:    '20px',
+        color:           isActive ? '#0a0a0a' : '#888888',
+        backgroundColor: isActive ? '#ffffff' : 'transparent',
+        border:          isActive ? '1px solid #ffffff' : '1px solid #333333',
       }}
     >
       {label}
@@ -222,42 +442,78 @@ function TabButton({
 }
 
 // ---------------------------------------------------------------------------
-// CategoryPill — small colored pill shown on every article/cluster
+// CategoryTag
 // ---------------------------------------------------------------------------
 
-function CategoryPill({ category }: { category: Category }) {
-  const style = CATEGORY_STYLE[category];
+function CategoryTag({ category }: { category: Category }) {
+  const color = CATEGORY_COLOR[category];
   return (
-    <span
-      className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-      style={{ backgroundColor: style.bg, color: style.text }}
-    >
-      {category}
+    <span className="inline-flex items-center gap-1">
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+      <span style={{
+        fontSize:      '10px',
+        fontWeight:    600,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.05em',
+        color,
+        fontFamily:    'var(--font-sans)',
+      }}>
+        {category}
+      </span>
     </span>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ClusterCard
+// TrendingCard — full-featured card for 3+ source clusters
 // ---------------------------------------------------------------------------
 
-function ClusterCard({ cluster }: { cluster: Cluster }) {
-  const [expanded, setExpanded] = useState(false);
+function TrendingCard({ cluster, index, summary }: {
+  cluster: Cluster; index: number; summary?: string;
+}) {
+  const [expanded, setExpanded]   = useState(false);
+  const [hovered,  setHovered]    = useState(false);
+  const catColor = CATEGORY_COLOR[cluster.category];
+  const clean    = summary ? cleanAI(summary) : null;
 
   return (
-    <li className="py-4 border-b border-gray-100 last:border-0">
-
-      {/* Trending / source count + category */}
-      <div className="flex items-center gap-2 mb-1.5">
-        {cluster.isTrending && (
-          <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">
-            Trending
-          </span>
-        )}
-        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-          {cluster.isTrending ? '·' : ''} {cluster.sources.length} sources
+    <div
+      className="card-animate"
+      style={{
+        animationDelay:  `${index * 50}ms`,
+        backgroundColor: hovered ? '#1a1a1a' : '#141414',
+        border:          '1px solid #1f1f1f',
+        borderLeft:      `3px solid ${catColor}`,
+        borderRadius:    '6px',
+        padding:         '20px 24px',
+        paddingLeft:     '22px',
+        transition:      'background-color 200ms ease, transform 200ms ease, box-shadow 200ms ease',
+        transform:       hovered ? 'translateY(-2px)' : 'translateY(0)',
+        boxShadow:       hovered ? `0 4px 20px rgba(0,0,0,0.4), -3px 0 12px ${catColor}33` : 'none',
+        cursor:          'default',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Meta row: trending indicator + category tag */}
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="heartbeat shrink-0 rounded-full"
+          style={{ width: '10px', height: '10px', backgroundColor: '#ef4444' }}
+        />
+        <span style={{
+          color:         '#ef4444',
+          fontSize:      '14px',
+          fontWeight:    700,
+          textTransform: 'uppercase' as const,
+          letterSpacing: '0.5px',
+          fontFamily:    'var(--font-sans)',
+        }}>
+          Trending · {cluster.sources.length} sources
         </span>
-        <CategoryPill category={cluster.category} />
+        <span className="ml-auto">
+          <CategoryTag category={cluster.category} />
+        </span>
       </div>
 
       {/* Headline */}
@@ -265,54 +521,87 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
         href={cluster.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[15px] font-semibold text-gray-900 leading-snug hover:underline decoration-gray-400 underline-offset-2 block mb-2"
+        className="headline-trending block mb-3 hover:opacity-80 transition-opacity"
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontWeight: 700,
+          lineHeight: 1.3,
+          color:      '#e5e5e5',
+        }}
       >
         {cluster.title}
       </a>
 
-      {/* Source labels */}
-      <div className="flex flex-wrap gap-x-2 gap-y-1 mb-2">
-        {cluster.sources.map((source) => (
-          <span
-            key={source}
-            className="text-[11px] font-bold uppercase tracking-wide"
-            style={{ color: SOURCE_COLORS[source] ?? '#374151' }}
-          >
-            {sourceLabel(source)}
-          </span>
-        ))}
-      </div>
+      {/* Sources */}
+      <p style={{
+        color:         '#666666',
+        fontSize:      '11px',
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.5px',
+        fontFamily:    'var(--font-sans)',
+        marginBottom:  clean || cluster.snippet ? '0' : '12px',
+      }}>
+        <SourceList sources={cluster.sources} />
+      </p>
 
-      {/* Snippet */}
-      {cluster.snippet && (
-        <p className="text-sm text-gray-500 leading-relaxed mb-2">
-          {cluster.snippet}
-        </p>
+      {/* AI summary or RSS snippet */}
+      {clean ? (
+        <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+          <p style={{
+            color:         '#888888',
+            fontSize:      '11px',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '1.5px',
+            fontFamily:    'var(--font-sans)',
+            marginBottom:  '6px',
+          }}>
+            ✦ AI Summary
+          </p>
+          <p className="ai-summary" style={{ color: '#c0c0c0', fontSize: '14px', lineHeight: 1.7, fontFamily: 'var(--font-sans)' }}>{clean}</p>
+        </div>
+      ) : cluster.snippet ? (
+        <p style={{ color: '#999999', fontSize: '13px', lineHeight: 1.6, fontFamily: 'var(--font-sans)', marginTop: '8px', marginBottom: '12px', whiteSpace: 'normal', wordWrap: 'break-word' }}>{cluster.snippet}</p>
+      ) : (
+        <div style={{ marginBottom: '12px' }} />
       )}
 
-      {/* Expandable article links */}
+      {/* Expand toggle */}
       <button
         onClick={() => setExpanded((e) => !e)}
-        className="text-xs text-gray-400 hover:text-gray-600 cursor-pointer transition-colors"
+        className="view-sources-btn"
       >
-        {expanded ? '▴ Hide articles' : `▾ See all ${cluster.articles.length} articles`}
+        {expanded ? 'Hide ‹' : `View ${cluster.sources.length} sources ›`}
       </button>
 
       {expanded && (
-        <ul className="mt-2 space-y-1.5 pl-3 border-l-2 border-gray-100">
+        <ul
+          className="sources-expand mt-3 space-y-2 pl-3"
+          style={{ borderLeft: '2px solid #222222' }}
+        >
           {cluster.articles.map((article, i) => (
-            <li key={`${article.url}-${i}`} className="flex items-baseline gap-2">
-              <span
-                className="text-[10px] font-bold uppercase tracking-wide shrink-0"
-                style={{ color: SOURCE_COLORS[article.source] ?? '#374151' }}
-              >
+            <li
+              key={`${article.url}-${i}`}
+              className="flex items-baseline gap-2"
+              style={{ animation: 'fadeInUp 0.2s ease-out both', animationDelay: `${i * 50}ms` }}
+            >
+              <span style={{
+                color:         SOURCE_COLORS[article.source] ?? '#888',
+                fontSize:      '10px',
+                fontWeight:    700,
+                textTransform: 'uppercase' as const,
+                letterSpacing: '0.05em',
+                flexShrink:    0,
+                fontFamily:    'var(--font-sans)',
+              }}>
                 {sourceLabel(article.source)}
               </span>
               <a
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-gray-700 hover:text-blue-600 hover:underline leading-snug"
+                style={{ color: '#777777', fontSize: '13px', lineHeight: 1.4, fontFamily: 'var(--font-sans)' }}
+                onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#e5e5e5')}
+                onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#777777')}
               >
                 {article.title}
               </a>
@@ -320,37 +609,200 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
           ))}
         </ul>
       )}
-
-    </li>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ArticleRow
+// StoryCard — uniform card for ALL non-trending stories (multi- and single-source)
 // ---------------------------------------------------------------------------
 
-function ArticleRow({ article }: { article: Article }) {
-  const color = SOURCE_COLORS[article.source] ?? '#374151';
+function StoryCard({ cluster, index }: { cluster: Cluster; index: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hovered,  setHovered]  = useState(false);
+  const isMulti    = cluster.sources.length >= 2;
+  const catColor   = CATEGORY_COLOR[cluster.category];
+  const article    = cluster.articles[0];
+  const sourceColor = SOURCE_COLORS[article?.source ?? ''] ?? '#888888';
+  const rawSnippet = cluster.snippet ?? article?.snippet ?? '';
+  const snippet    = rawSnippet && !isSimilarToHeadline(cluster.title, rawSnippet) ? rawSnippet : null;
+
   return (
-    <li className="py-4 border-b border-gray-100 last:border-0">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs font-bold uppercase tracking-wide" style={{ color }}>
+    <div
+      className="card-animate"
+      style={{
+        animationDelay:  `${index * 50}ms`,
+        backgroundColor: hovered ? '#1a1a1a' : '#141414',
+        border:          '1px solid #222222',
+        borderLeft:      isMulti ? `3px solid ${catColor}` : '1px solid #222222',
+        borderRadius:    '6px',
+        padding:         '20px 24px',
+        paddingLeft:     isMulti ? '22px' : '24px',
+        transition:      'background-color 200ms ease',
+        cursor:          'default',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {isMulti ? (
+        /* ── Multi-source layout ── */
+        <>
+          <div className="flex items-start gap-3 mb-2">
+            <a
+              href={cluster.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                flex:       1,
+                fontFamily: 'var(--font-sans)',
+                fontSize:   '18px',
+                fontWeight: 600,
+                lineHeight: 1.35,
+                color:      hovered ? '#e5e5e5' : '#e0e0e0',
+                transition: 'color 200ms ease',
+              }}
+            >
+              {cluster.title}
+            </a>
+            <span className="shrink-0" style={{ paddingTop: '3px' }}>
+              <CategoryTag category={cluster.category} />
+            </span>
+          </div>
+
+          <p style={{
+            color:         '#666666',
+            fontSize:      '11px',
+            textTransform: 'uppercase' as const,
+            letterSpacing: '0.5px',
+            fontFamily:    'var(--font-sans)',
+            marginBottom:  snippet ? '4px' : '8px',
+          }}>
+            <SourceList sources={cluster.sources} />
+          </p>
+
+          {snippet && (
+            <p style={{ color: '#999999', fontSize: '13px', lineHeight: 1.6, fontFamily: 'var(--font-sans)', marginBottom: '8px', whiteSpace: 'normal', wordWrap: 'break-word' }}>
+              {snippet}
+            </p>
+          )}
+
+          <button onClick={() => setExpanded((e) => !e)} className="view-sources-btn">
+            {expanded ? 'Hide ‹' : `View ${cluster.sources.length} sources ›`}
+          </button>
+
+          {expanded && (
+            <ul className="sources-expand mt-2 space-y-1.5 pl-3" style={{ borderLeft: '2px solid #222222' }}>
+              {cluster.articles.map((a, i) => (
+                <li
+                  key={`${a.url}-${i}`}
+                  className="flex items-baseline gap-2"
+                  style={{ animation: 'fadeInUp 0.2s ease-out both', animationDelay: `${i * 50}ms` }}
+                >
+                  <span style={{ color: SOURCE_COLORS[a.source] ?? '#888', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.05em', flexShrink: 0, fontFamily: 'var(--font-sans)' }}>
+                    {sourceLabel(a.source)}
+                  </span>
+                  <a
+                    href={a.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#777777', fontSize: '13px', lineHeight: 1.4, fontFamily: 'var(--font-sans)' }}
+                    onMouseEnter={(e) => ((e.target as HTMLElement).style.color = '#e5e5e5')}
+                    onMouseLeave={(e) => ((e.target as HTMLElement).style.color = '#777777')}
+                  >
+                    {a.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : (
+        /* ── Single-source layout ── */
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <span style={{ color: sourceColor, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.5px', fontFamily: 'var(--font-sans)' }}>
+              {sourceLabel(article.source)}
+            </span>
+            <span style={{ color: '#555555', fontSize: '11px', fontFamily: 'var(--font-sans)' }}>
+              {shortTime(article.publishedAt)}
+            </span>
+            <span className="ml-auto">
+              <CategoryTag category={cluster.category} />
+            </span>
+          </div>
+
+          <a
+            href={cluster.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display:    'block',
+              fontFamily: 'var(--font-sans)',
+              fontSize:   '18px',
+              fontWeight: 600,
+              lineHeight: 1.35,
+              color:      hovered ? '#e5e5e5' : '#e0e0e0',
+              transition: 'color 200ms ease',
+            }}
+          >
+            {cluster.title}
+          </a>
+
+          {snippet && (
+            <p style={{ color: '#999999', fontSize: '13px', lineHeight: 1.6, fontFamily: 'var(--font-sans)', marginTop: '4px', whiteSpace: 'normal', wordWrap: 'break-word' }}>
+              {snippet}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ArticleRow — used only in list mode (source filter active)
+// ---------------------------------------------------------------------------
+
+function ArticleRow({ article, index }: { article: Article; index: number }) {
+  const [hovered,   setHovered]  = useState(false);
+  const sourceColor = SOURCE_COLORS[article.source] ?? '#888888';
+  const snippet     = isSimilarToHeadline(article.title, article.snippet) ? null : article.snippet;
+
+  return (
+    <div
+      className="card-animate"
+      style={{
+        animationDelay:  `${index * 50}ms`,
+        backgroundColor: hovered ? '#1a1a1a' : '#141414',
+        border:          '1px solid #222222',
+        borderRadius:    '6px',
+        padding:         '16px 20px',
+        transition:      'background-color 200ms ease',
+        cursor:          'default',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <span style={{ color: sourceColor, fontSize: '11px', fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.5px', fontFamily: 'var(--font-sans)' }}>
           {sourceLabel(article.source)}
         </span>
-        <span className="text-xs text-gray-400">{relativeTime(article.publishedAt)}</span>
-        <CategoryPill category={article.category} />
+        <span style={{ color: '#555555', fontSize: '11px', fontFamily: 'var(--font-sans)' }}>
+          {shortTime(article.publishedAt)}
+        </span>
+        <span className="ml-auto"><CategoryTag category={article.category} /></span>
       </div>
       <a
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[15px] font-semibold text-gray-900 leading-snug hover:underline decoration-gray-400 underline-offset-2 block"
+        style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: '17px', fontWeight: 600, lineHeight: 1.35, color: hovered ? '#e5e5e5' : '#e0e0e0', transition: 'color 200ms ease' }}
       >
         {article.title}
       </a>
-      {article.snippet && (
-        <p className="text-sm text-gray-500 mt-1 leading-relaxed">{article.snippet}</p>
+      {snippet && (
+        <p style={{ color: '#999999', fontSize: '13px', lineHeight: 1.6, fontFamily: 'var(--font-sans)', marginTop: '4px', whiteSpace: 'normal', wordWrap: 'break-word' }}>{snippet}</p>
       )}
-    </li>
+    </div>
   );
 }

@@ -20,14 +20,15 @@ import { categorize, type Category } from './categorize';
 // ---------------------------------------------------------------------------
 
 const FEEDS = [
-  { name: 'Economic Times', url: 'https://economictimes.indiatimes.com/rssfeedstopstories.cms' },
-  { name: 'The Hindu',      url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
-  { name: 'Livemint',       url: 'https://www.livemint.com/rss/news' },
-  { name: 'NDTV',           url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
-  { name: 'Yahoo India',    url: 'https://news.yahoo.com/rss/india' },
-  { name: 'India Today',    url: 'https://www.indiatoday.in/rss/home' },
-  { name: 'Times of India', url: 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms' },
+  { name: 'Economic Times',  url: 'https://economictimes.indiatimes.com/rssfeedstopstories.cms' },
+  { name: 'The Hindu',       url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
+  { name: 'Livemint',        url: 'https://www.livemint.com/rss/news' },
+  { name: 'NDTV',            url: 'https://feeds.feedburner.com/ndtvnews-top-stories' },
+  { name: 'Indian Express',  url: 'https://indianexpress.com/section/india/feed/' },
+  { name: 'India Today',     url: 'https://www.indiatoday.in/rss/home' },
+  { name: 'Times of India',  url: 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms' },
   { name: 'Hindustan Times', url: 'https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml' },
+  { name: 'CNBC-TV18',       url: 'https://www.cnbctv18.com/commonfeeds/v1/cne/rss/latest.xml' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,8 @@ export type Article = {
 // ---------------------------------------------------------------------------
 
 const parser = new Parser({
-  timeout: 10000, // 10 seconds per feed
+  timeout: 10000,
+  headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
 });
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,7 @@ async function fetchFeed(name: string, url: string): Promise<Article[]> {
 // ---------------------------------------------------------------------------
 
 export async function getAllArticles(): Promise<Article[]> {
+  console.log(`[feeds] Fetching all RSS feeds at ${new Date().toISOString()}`);
   // Promise.allSettled means: run all, don't stop if one fails
   const results = await Promise.allSettled(
     FEEDS.map((feed) => fetchFeed(feed.name, feed.url))

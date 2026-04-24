@@ -24,7 +24,13 @@ export async function GET() {
       publishedAt: a.publishedAt.toISOString(), // Date → string for JSON
     }));
 
-    return NextResponse.json(serialized);
+    return NextResponse.json(serialized, {
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma':        'no-cache',
+        'Expires':       '0',
+      },
+    });
   } catch {
     return NextResponse.json({ error: 'Failed to fetch articles' }, { status: 500 });
   }

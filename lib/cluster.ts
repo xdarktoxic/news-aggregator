@@ -50,19 +50,64 @@ const STOPWORDS = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// getSignificantWords
+// SYNONYMS — maps headline variants to a canonical form so the overlap
+// algorithm can match stories that use different phrasing for the same event.
 //
-// Strips punctuation, lowercases, removes stopwords and very short words.
-// Returns a Set so intersection checks are O(n).
+// Examples: "okays" → "approves", "hike" → "increase", "dearness" → "allowance"
 // ---------------------------------------------------------------------------
 
-function getSignificantWords(title: string): Set<string> {
+const SYNONYMS: Record<string, string> = {
+  // Approval / decision verbs
+  okays:   'approves', okayed:  'approves',
+  clears:  'approves', cleared: 'approves',
+  nods:    'approves',
+
+  // Increase synonyms
+  hike:    'increase', hikes:   'increase', hiked:   'increase',
+  rise:    'increase', rises:   'increase', rose:    'increase',
+  surge:   'increase', surged:  'increase',
+  jump:    'increase', jumped:  'increase',
+  raises:  'increase', raised:  'increase',
+  gains:   'increase',
+
+  // Decrease synonyms
+  cut:     'reduce',   cuts:    'reduce',
+  slash:   'reduce',   slashes: 'reduce',
+  reduced: 'reduce',
+
+  // Market decline
+  drops:   'falls',    dropped: 'falls',
+  slumps:  'falls',    slump:   'falls',
+  tumbles: 'falls',    plunges: 'falls',
+  dips:    'falls',
+
+  // Indian news — Dearness Allowance
+  dearness: 'allowance',
+
+  // Death / killing
+  killed:  'killed',   dies:    'death',
+  dead:    'death',    passed:  'death',
+};
+
+// ---------------------------------------------------------------------------
+// getSignificantWords
+//
+// Strips punctuation, lowercases, removes stopwords and very short words,
+// then applies synonym normalisation so headline variants match the same
+// canonical token. Returns a Set so intersection checks are O(n).
+//
+// Length threshold is >= 2 (not > 2) so abbreviations like "DA", "PM",
+// "CM", "ED" are retained as significant words.
+// ---------------------------------------------------------------------------
+
+export function getSignificantWords(title: string): Set<string> {
   return new Set(
     title
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
-      .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+      .filter((w) => w.length >= 2 && !STOPWORDS.has(w))
+      .map((w) => SYNONYMS[w] ?? w)
   );
 }
 
@@ -147,4 +192,27 @@ export function clusterArticles(articles: Article[]): Cluster[] {
     }
     return b.latestAt.getTime() - a.latestAt.getTime();
   });
+}
+
+// ---------------------------------------------------------------------------
+// clusterFingerprint — stable content-based ID for a cluster.
+//
+// Used by the push-notification system to remember "we already pinged users
+// about this story." The cluster's .id field embeds an array index and the
+// latest article URL, both of which drift as new articles arrive; this
+// fingerprint stays stable as long as the cluster's core vocabulary does.
+// ---------------------------------------------------------------------------
+
+const FINGERPRINT_WORDS = 5;
+
+export function clusterFingerprint(cluster: Cluster): string {
+  const words = new Set<string>();
+  for (const a of cluster.articles) {
+    for (const w of getSignificantWords(a.title)) words.add(w);
+  }
+  return [...words]
+    .sort((a, b) => b.length - a.length || a.localeCompare(b))
+    .slice(0, FINGERPRINT_WORDS)
+    .sort()
+    .join("-");
 }

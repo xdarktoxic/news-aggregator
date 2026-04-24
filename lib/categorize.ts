@@ -33,13 +33,16 @@ const KEYWORDS: Record<Exclude<Category, 'General'>, string[]> = {
     'reservation', 'opposition', 'government', 'cabinet', 'tmc', 'aap',
     'dmk', 'aiadmk', 'poll', 'campaign', 'mamata', 'priyanka', 'amit shah',
     'lok sabha', 'rajya sabha', 'chief minister', 'governor',
+    'apology', 'vhp', ' rss ', 'hindutva', 'political', 'party',
   ],
   Markets: [
-    'stock', 'share', 'nifty', 'sensex', 'bse', 'nse', 'buy', 'sell',
-    'target', 'rating', 'mutual fund', 'fii', 'dii', 'ipo', 'earnings',
-    'q4', 'results', 'hdfc', 'tcs', 'infosys', 'reliance', 'ongc',
-    'gold', 'crude', 'oil price', 'rupee', 'forex', 'rbi', 'inflation',
-    'gdp', 'dearness allowance', 'market cap', 'dividend', 'profit',
+    'stock', 'share', 'nifty', 'sensex', 'bse', 'nse',
+    'mutual fund', 'fii', 'dii', 'ipo', 'earnings',
+    'q4', 'q3', 'q2', 'q1', 'quarterly results', 'hdfc', 'tcs', 'infosys',
+    'reliance industries', 'ongc', 'gold price', 'crude oil', 'oil price',
+    'rupee', 'forex', 'rbi', 'inflation', 'gdp', 'dearness allowance',
+    'market cap', 'dividend', 'buyback', 'price target', 'analyst rating',
+    'interest rate', 'repo rate', 'fiscal', 'revenue', 'net profit',
   ],
   World: [
     ' us ', 'trump', 'iran', 'israel', 'china', 'russia', 'ukraine',
@@ -52,6 +55,7 @@ const KEYWORDS: Record<Exclude<Category, 'General'>, string[]> = {
     'bowling', 'batting', 'csk', ' mi ', 'rcb', 'pbks', 'kkr', ' gt ',
     ' dc ', 'srh', 'lsg', ' rr ', 'fifa', 'football', 'tennis',
     'olympic', 'tournament', 'trophy', 'stadium', 'player', 'score',
+    'injury', 'hamstring', 'physio', 'fitness test', 'ruled out',
   ],
   Tech: [
     ' ai ', 'artificial intelligence', 'startup', 'google', 'apple',
@@ -65,11 +69,16 @@ const KEYWORDS: Record<Exclude<Category, 'General'>, string[]> = {
     'actor', 'actress', 'director', 'trailer', 'song', 'album',
     'series', 'review', 'amazon prime', 'disney', 'hotstar',
     'hollywood', 'celebrity', 'award',
+    'pregnancy', 'pregnant', 'deepika', 'ranveer', 'alia bhatt',
+    'shah rukh', 'salman khan', 'katrina kaif', 'celebrity wedding',
+    'star wedding', 'newborn', 'star couple', 'karan johar',
   ],
   Lifestyle: [
     'health', 'fitness', 'food', 'recipe', 'travel', 'weather',
     'temperature', 'diet', 'yoga', 'meditation', 'supplement',
     'skincare', 'fashion', 'lifestyle', 'wellness', 'mental health',
+    'wildlife', 'animal', 'environment', 'climate change', 'nature',
+    'forest', 'honey', 'bees', 'birds', 'endangered',
   ],
 };
 
